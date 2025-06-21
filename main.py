@@ -20,21 +20,23 @@ def on_connect(client, userdata, flags, rc):
     client.subscribe(MQTT_TOPIC_SENSOR)
 
 def on_message(client, userdata, msg):
-    global temperatura, humedad
+    global temperatura, humedad, led_status
     try:
         data = json.loads(msg.payload.decode())
         temperatura = data["temp"]
         humedad = data["hum"]
-        print(f"Datos recibidos: Temp={temperatura}°C, Hum={humedad}%")
+        led_status = data["sled"]
+        print(f"Datos recibidos: Temp={temperatura}°C, Hum={humedad}% ,Estado del Led = {led_status}" )
         update_ui()
     except Exception as e:
-        print(f"Error al procesar mensaje: {e}")
+        #print(f"Error al procesar mensaje: {e}")
+        pass
 
 def update_ui():
     page.update()
 
 def toggle_led(e):
-    global led_status
+    global led_status        
     led_status = not led_status
     command = "ON" if led_status else "OFF"
     mqtt_client.publish(MQTT_TOPIC_LED, command)
@@ -68,7 +70,7 @@ def main(page: ft.Page):
         bgcolor="blue",
         width=200
     )
-
+    
     page.add(
         ft.Column([
             ft.Icon(name=ft.icons.THERMOSTAT, size=50),
@@ -86,6 +88,8 @@ def main(page: ft.Page):
         while True:
             txt_temp.value = f"Temperatura: {temperatura}°C"
             txt_hum.value = f"Humedad: {humedad}%"
+            btn_led.text = f"LED: {'ENCENDIDO' if led_status else 'APAGADO'}"
+
             page.update()
             time.sleep(2)
 
@@ -95,3 +99,4 @@ def main(page: ft.Page):
 threading.Thread(target=start_mqtt, daemon=True).start()
 
 ft.app(target=main, view=ft.WEB_BROWSER, port=8080)
+
