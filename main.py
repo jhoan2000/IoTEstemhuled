@@ -55,7 +55,7 @@ def start_mqtt():
 # Interfaz Flet
 def main(page: ft.Page):
     global btn_led
-    page.title = "ESP32-CAM Monitor"
+    page.title = "IoT Estemhuled"
     page.vertical_alignment = ft.MainAxisAlignment.CENTER
     page.horizontal_alignment = ft.CrossAxisAlignment.CENTER
     page.theme_mode = ft.ThemeMode.LIGHT
@@ -98,5 +98,5 @@ def main(page: ft.Page):
 # Iniciar MQTT en segundo plano
 threading.Thread(target=start_mqtt, daemon=True).start()
 
-ft.app(target=main, view=ft.WEB_BROWSER, port=8080)
+ft.app(target=main)
 
