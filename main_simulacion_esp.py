@@ -5,9 +5,11 @@ from machine import Pin
 from umqtt import MQTTClient
 import urandom
 import uhashlib
+import ubinascii
+import ucryptolib
 
 # --- Configuración protegida ---
-SECRET_KEY = b"miclave1234567890"
+SECRET_KEY = b"claveAES128bits!"  # exactamente 16 bytes
 PIN_AUTENTICACION = "1234"
 UMBRAL_TEMP = 30
 UMBRAL_HUM = 30
@@ -15,17 +17,24 @@ UMBRAL_HUM = 30
 # --- Variables protegidas ---
 bomba_pin = Pin(4, Pin.OUT)
 
-# --- Función de autenticación simple por PIN ---
-def validar_pin(pin):
-    return pin == PIN_AUTENTICACION
+# --- AES ECB Encryption ---
+def cifrar_valor(valor):
+    aes = ucryptolib.aes(SECRET_KEY, 1)  # AES.MODE_ECB
+    valor_str = str(valor)
+    # Relleno manual con espacios si es más corto que 16
+    while len(valor_str) < 16:
+        valor_str += ' '
+    valor_str = valor_str[:16]  # Cortar si se pasa
+    encrypted = aes.encrypt(valor_str.encode())
+    return ubinascii.b2a_base64(encrypted).decode().strip()
 
 # --- Simulación de sensor ---
 def leer_sensor():
     temp = urandom.getrandbits(4) + 25
     hum = urandom.getrandbits(4) + 20
-    return temp, hum
+    return str(temp), str(hum)
 
-# --- Cifrado de datos (simulado con hash para integridad) ---
+# --- Cifrado de datos (hash para integridad) ---
 def firmar_datos(data_json):
     h = uhashlib.sha256()
     h.update(data_json + SECRET_KEY)
@@ -45,14 +54,14 @@ mqtt.connect()
 
 while True:
     temp, hum = leer_sensor()
-    bomba_estado = temp > UMBRAL_TEMP and hum < UMBRAL_HUM
+    bomba_estado = int(temp) > UMBRAL_TEMP and int(hum) < UMBRAL_HUM
     bomba_pin.value(1 if bomba_estado else 0)
 
     payload = {
-        "temp": temp,
-        "hum": hum,
+        "temp": cifrar_valor(temp),
+        "hum": cifrar_valor(hum),
         "bomba_riego": bomba_estado,
-        "pin": PIN_AUTENTICACION
+        "pin": cifrar_valor(PIN_AUTENTICACION)
     }
     json_data = ujson.dumps(payload)
     firma = firmar_datos(json_data.encode())
