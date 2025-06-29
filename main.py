@@ -3,44 +3,55 @@ import paho.mqtt.client as mqtt
 import json
 import threading
 import time
-# Configuración MQTT (usa el mismo broker que la ESP32)
-MQTT_BROKER = "mqtt.eclipseprojects.io"
-MQTT_TOPIC_SENSOR = "sensor/dht11"  # Tópico donde ESP32 publica datos
-MQTT_TOPIC_LED = "control/led"      # Tópico para controlar el LED
+import hashlib
 
-# Variables globales para los datos
+# Configuración protegida
+SECRET_KEY = b"miclave1234567890"
+PIN_AUTORIZADO = "1234"
+
+# Variables globales
 temperatura = "---"
 humedad = "---"
-led_status = False
+bomba_riego = False
 page = None
+
+# Validar firma de datos
+def validar_datos(data, firma):
+    json_bytes = json.dumps(data).encode()
+    h = hashlib.sha256()
+    h.update(json_bytes + SECRET_KEY)
+    return h.hexdigest() == firma
 
 # Conexión MQTT
 def on_connect(client, userdata, flags, rc):
     print("Conectado al broker MQTT")
-    client.subscribe(MQTT_TOPIC_SENSOR)
+    client.subscribe("sensor/dht11")
 
 def on_message(client, userdata, msg):
-    global temperatura, humedad, led_status
+    global temperatura, humedad, bomba_riego
     try:
-        data = json.loads(msg.payload.decode())
+        payload = json.loads(msg.payload)
+        data = payload.get("data")
+        firma = payload.get("firma")
+        if not validar_datos(data, firma):
+            print("⚠️ Firma inválida. Ignorando mensaje.")
+            return
+
+        if data.get("pin") != PIN_AUTORIZADO:
+            print("⚠️ PIN no autorizado")
+            return
+
         temperatura = data["temp"]
         humedad = data["hum"]
-        led_status = data["sled"]
-        print(f"Datos recibidos: Temp={temperatura}°C, Hum={humedad}% ,Estado del Led = {led_status}" )
+        bomba_riego = data["bomba_riego"]
+
+        print(f"Datos recibidos: Temp={temperatura}°C, Hum={humedad}%, Riego={bomba_riego}")
         update_ui()
     except Exception as e:
-        #print(f"Error al procesar mensaje: {e}")
-        pass
+        print("Error al procesar mensaje:", e)
+
 
 def update_ui():
-    page.update()
-
-def toggle_led(e):
-    global led_status        
-    led_status = not led_status
-    command = "ON" if led_status else "OFF"
-    mqtt_client.publish(MQTT_TOPIC_LED, command)
-    btn_led.text = f"LED: {'ENCENDIDO' if led_status else 'APAGADO'}"
     page.update()
 
 # Configura cliente MQTT
@@ -49,47 +60,37 @@ mqtt_client.on_connect = on_connect
 mqtt_client.on_message = on_message
 
 def start_mqtt():
-    mqtt_client.connect(MQTT_BROKER, 1883, 60)
+    mqtt_client.connect("mqtt.eclipseprojects.io", 1883, 60)
     mqtt_client.loop_forever()
 
 # Interfaz Flet
-def main(page: ft.Page):
-    global btn_led
-    page.title = "IoT Estemhuled"
+def main(p):
+    global page
+    page = p
+    page.title = "Panel de Cultivo Seguro"
     page.vertical_alignment = ft.MainAxisAlignment.CENTER
     page.horizontal_alignment = ft.CrossAxisAlignment.CENTER
     page.theme_mode = ft.ThemeMode.LIGHT
 
-    # Elementos UI
     txt_temp = ft.Text(f"Temperatura: {temperatura}°C", size=24)
     txt_hum = ft.Text(f"Humedad: {humedad}%", size=24)
-    btn_led = ft.ElevatedButton(
-        "LED: APAGADO",
-        on_click=toggle_led,
-        color="white",
-        bgcolor="blue",
-        width=200
-    )
-    
+    txt_riego = ft.Text(f"RIEGO DESACTIVADO", size=28, weight=ft.FontWeight.BOLD, color="blue")
+
     page.add(
         ft.Column([
-            ft.Icon(name=ft.icons.THERMOSTAT, size=50),
+            ft.Text("Estado del Sensor", size=40, weight=ft.FontWeight.BOLD),
             txt_temp,
-            ft.Divider(),
-            ft.Icon(name=ft.icons.WATER_DROP, size=50),
             txt_hum,
-            ft.Divider(),
-            btn_led
+            txt_riego
         ], alignment=ft.MainAxisAlignment.CENTER)
     )
 
-    # Actualización periódica de UI
     def update_task():
         while True:
             txt_temp.value = f"Temperatura: {temperatura}°C"
             txt_hum.value = f"Humedad: {humedad}%"
-            btn_led.text = f"LED: {'ENCENDIDO' if led_status else 'APAGADO'}"
-
+            txt_riego.value = "RIEGO ACTIVADO" if bomba_riego else "RIEGO DESACTIVADO"
+            txt_riego.color = "green" if bomba_riego else "red"
             page.update()
             time.sleep(2)
 
@@ -98,5 +99,5 @@ def main(page: ft.Page):
 # Iniciar MQTT en segundo plano
 threading.Thread(target=start_mqtt, daemon=True).start()
 
-ft.app(target=main)
+ft.app(target=main, view=ft.WEB_BROWSER)
 
